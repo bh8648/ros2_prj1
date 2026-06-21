@@ -4,7 +4,7 @@ import DR_init
 # for single robot
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "m0609"
-VELOCITY, ACC = 30, 30
+VELOCITY, ACC = 80, 80
 
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL

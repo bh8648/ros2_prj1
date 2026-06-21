@@ -64,7 +64,7 @@ def main(args=None):
 
     
 
-    while rclpy.ok():
+    while rclpy.spin_once():
 
         System_first_block = posx([249.49, -150.54, 340.00, 163.97, -179.72, 165.02])
     
