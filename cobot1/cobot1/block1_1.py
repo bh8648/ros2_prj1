@@ -61,10 +61,10 @@ def main(args=None):
     #JReady = posj([0.0, 0.0, 90.0, 0.0, 90.0, 0.0])
     #pos1 = posx([350.0, 34.5, 300.0, 45.0, 180.0, 45.0])
 
-
+    cnt = 1
     
 
-    while rclpy.spin_once():
+    while rclpy.ok():
 
         System_first_block = posx([249.49, -150.54, 340.00, 163.97, -179.72, 165.02])
     
@@ -78,13 +78,12 @@ def main(args=None):
             set_digital_output(2, ON)
             set_digital_output(1, OFF)
             wait(1.0)
-
+        
         time.sleep(0.5)
         grap_close()
         pos = System_first_block
         pos2 = System_second_block
-        cnt = 1
-
+        
         while cnt < 10:
 
             p1 = System_first_block
@@ -136,7 +135,7 @@ def main(args=None):
 
   
             while True:
-                check_force_condition()
+                
                 force_ext = get_tool_force(DR_BASE)
                 print(f"force_ext = {force_ext}")
 
