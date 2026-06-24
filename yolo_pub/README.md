@@ -42,7 +42,7 @@ ros2 run yolo_pub sub
 
 pip install ultralytics
 
-wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt
+wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov26n.pt
 
 sudo apt update
 sudo apt install python3-opencv
