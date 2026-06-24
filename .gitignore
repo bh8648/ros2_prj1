@@ -1,6 +1,9 @@
 build/
 install/
 log/
+src/
+test/
+ui/
 *.so
 *.o
 __pycache__/
