@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+from glob import glob
+import os
 
 package_name = 'yolo_pub'
 
@@ -10,6 +12,9 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+         # models 폴더 안의 .pt 파일을 install/share/yolo_pub/models 로 복사
+        (os.path.join('share', package_name, 'models'),
+            glob(os.path.join('models', '*.pt'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

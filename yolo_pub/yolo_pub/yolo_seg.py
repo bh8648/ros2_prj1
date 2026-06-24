@@ -7,6 +7,8 @@ import cv2
 from ultralytics import YOLO
 import torch
 import numpy as np
+from ament_index_python.packages import get_package_share_directory
+from pathlib import Path
 
 class YoloDetector(Node):
 
@@ -23,7 +25,16 @@ class YoloDetector(Node):
         self.publiser_image = self.create_publisher(Image, 'yolo/yolo_image', 10)
 
         self.bridge = CvBridge()
-        self.model = YOLO("yolo26n-seg.pt")
+        
+        package_share_dir = get_package_share_directory('yolo_pub')
+
+        self.yolo_path_name = "trained_yolo26_seg_multiclass_20260623_145043_last.pt"
+
+        self.yolo_path = str(
+            Path(package_share_dir) / "models" / self.yolo_path_name
+        )
+        self.model = YOLO(self.yolo_path)
+
 
     def image_callback(self, msg):
 
