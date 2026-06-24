@@ -38,12 +38,8 @@ def main(args=None):
             OFF, 
             DR_FC_MOD_REL,
             DR_BASE,
-            check_force_condition,
-            DR_AXIS_Z,
 
-            
-            
-        
+
             
 
         )
