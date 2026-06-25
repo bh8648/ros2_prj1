@@ -1,0 +1,17 @@
+
+# --- Goal ---
+bool start                  # true면 작업 시작
+---
+# --- Result ---
+int32 total_moved           # 옮긴 총 개수
+bool success
+---
+# --- Feedback ---
+uint8 EVENT_PICKING=0
+uint8 EVENT_GRABBED=1       # 바구니에서 정상 파지
+uint8 EVENT_PLACED=2        # 컨베이어 안착
+uint8 EVENT_RETRY=3         # 파지 실패, 재시도 중
+uint8 EVENT_DROPPED=4       # 이동 중 낙하 (동작은 계속)
+int32 moved_count           # 지금까지 옮긴 개수
+string current_object       # 현재 처리 중인 물건 클래스
+uint8 event

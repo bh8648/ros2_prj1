@@ -1,0 +1,5 @@
+# --- Request ---
+---
+# --- Response ---
+bool success                # 작업이 실제로 시작됐는지
+string message              # 실패 시 이유 (예: 이미 진행 중, robot_arm_node 응답 없음)

@@ -1,0 +1,6 @@
+# --- Request ---
+string item_name            # 차감할 물건 클래스
+---
+# --- Response ---
+bool success
+int32 remaining             # 차감 후 남은 수량

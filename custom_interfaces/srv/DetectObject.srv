@@ -1,0 +1,8 @@
+bool capture                # true면 현재 프레임 인식
+---
+bool found                  # 바구니에 물건이 남아있는지
+float64 center_x            # 이미지 좌표계 중심 x (px)
+float64 center_y            # 이미지 좌표계 중심 y (px)
+float64 angle		    # 물건의 기울기
+string label                # 인식된 물건 클래스명 (YOLO 클래스)
+
