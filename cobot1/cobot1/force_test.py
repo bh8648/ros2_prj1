@@ -19,11 +19,12 @@ def main(args=None):
 
     DR_init.__dsr__node = node
 
+
+
     try:
         from DSR_ROBOT2 import (
             release_compliance_ctrl,
             release_force,
-            check_force_condition,
             task_compliance_ctrl,
             set_desired_force,
             set_tool,
@@ -31,8 +32,12 @@ def main(args=None):
             movej,
             movel,
             DR_FC_MOD_REL,
-            DR_AXIS_Z,
             DR_BASE,
+            get_tool_force,
+            get_current_posx,
+            set_digital_output,
+            wait,
+            DR_TOOL
         )
 
         from DR_common2 import posx, posj
@@ -41,41 +46,71 @@ def main(args=None):
         print(f"Error importing DSR_ROBOT2 : {e}")
         return
 
-    set_tool("Tool Weight_2FG")
-    set_tcp("2FG_TCP")
+    set_tool("Tool Weight_1")
+    set_tcp("GripperDA_v1")
 
     pos = posx([496.06, 93.46, 96.92, 20.75, 179.00, 19.09])
     JReady = posj([0, 0, 90, 0, 90, 0])
-    
+
+    def grap_open():
+        set_digital_output(2, OFF)
+        set_digital_output(1, ON)
+        wait(1.0)
+
+    def grap_close():
+        set_digital_output(2, ON)
+        set_digital_output(1, OFF)
+        wait(1.0)
+    s = 0
     while rclpy.ok():
 
+        movel([0, 0, 0, 0, 0, 90], VELOCITY, ACC, ref=DR_TOOL)
+
+        grap_close()
+        wait(2.0)
         print(f"Moving to joint position: {JReady}")
-        movej(JReady, vel=VELOCITY, acc=ACC)
 
-        print(f"Moving to task position: {pos}")
-        movel(pos, vel=VELOCITY, acc=ACC, ref=DR_BASE)
 
-        print("Starting task_compliance_ctrl")
-        task_compliance_ctrl(stx=[500, 500, 500, 100, 100, 100])
+        wait(0.5)
+        task_compliance_ctrl([3000, 3000, 500, 300, 300, 300])
+        wait(0.5)  # ← 이거 추가
+        set_desired_force(fd=[0, 0, -30, 0, 0, 0], dir=[0, 0, 1, 0, 0, 0], mod=DR_FC_MOD_REL)
         time.sleep(0.5)
 
-        print("Starting set_desired_force")
-        set_desired_force(fd=[0, 0, -10, 0, 0, 0], dir=[0, 0, 1, 0, 0, 0], mod=DR_FC_MOD_REL)
+        while True:
+            force_ext = get_tool_force(DR_BASE)
+            print(f"#force_ext = {force_ext}")
 
-        # 외력이 0 이상 5 이하이면 0
-        # 외력이 5 초과이면 -1
-        while not check_force_condition(DR_AXIS_Z, max=5):
-            print("Waiting for an external force greater than 5 ")
-            time.sleep(0.5)
-            pass
+    
+            if force_ext[2] >= 5:
+                break
+            
 
-        print("Starting release_force")
+    
+
         release_force()
         time.sleep(0.5)
         
         print("Starting release_compliance_ctrl")      
         release_compliance_ctrl()
+        time.sleep(0.5)
 
+        a = get_current_posx()[0]
+        a[2] += 5
+        movel(a, 80, 100)
+        grap_open()
+        wait(2.0)
+        a[2] -= 60
+        movel(a, 80, 100)
+        wait(0.5)
+        grap_close()
+        wait(2.0)
+        a[2] += 200.00
+        movel(a, 80, 100)
+
+        if s == 1:
+            break
+        s += 1
     rclpy.shutdown()
 
 
