@@ -8,3 +8,5 @@ ui/
 *.o
 __pycache__/
 *.pyc
+cobot1_system/models/*.pt
+.vscode/

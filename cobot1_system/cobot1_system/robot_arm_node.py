@@ -103,6 +103,14 @@ class RobotArmNode(Node):
         if self._check_abort():
             return
 
+        # 카메라 노드가 없으면 future가 영원히 완료되지 않아 액션이 멈춘다.
+        # 서버가 안 떠 있으면 작업을 중단한다.
+        if not self.detect_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error('카메라(/detect_object) 응답 없음 - 작업 중단')
+            self._goal_handle.abort()
+            self._finish(success=False)
+            return
+
         request = DetectObject.Request()
         request.capture = True
         future = self.detect_client.call_async(request)
@@ -159,6 +167,14 @@ class RobotArmNode(Node):
         self._start_grasp(detect_response)
 
     def _request_inventory_update(self):
+        # db 노드가 없어도 작업은 계속한다(재고 반영만 건너뜀). wait_for_service로
+        # 서버가 없으면 바로 place 단계로 넘어가 액션이 멈추지 않게 한다.
+        if not self.inventory_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn(
+                f'재고 서비스(/update_inventory) 응답 없음: {self._current_label}')
+            self._place_object()
+            return
+
         request = UpdateInventory.Request()
         request.item_name = self._current_label
         future = self.inventory_client.call_async(request)
