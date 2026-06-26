@@ -6,6 +6,9 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
+
+from dsr_msgs2.srv import MoveStop
 
 from custom_interfaces.action import PickAndPlace
 from custom_interfaces.srv import DetectObject, UpdateInventory
@@ -33,7 +36,17 @@ class RobotArmNode(Node):
             self.get_logger().error(f'DSR_ROBOT2 연동 실패 (로봇 연결 확인 필요): {e}')
 
         self.emergency_stopped = False
-        self.create_subscription(Bool, '/emergency_stop', self.emergency_stop_callback, 10)
+
+        # 비상정지는 액션이 모션에 블로킹돼 있어도 즉시 처리돼야 하므로 전용 그룹 사용.
+        monitor_cb_group = ReentrantCallbackGroup()
+        self.create_subscription(
+            Bool, '/emergency_stop', self.emergency_stop_callback, 10,
+            callback_group=monitor_cb_group)
+        # 컨트롤러 move_stop 서비스로 진행 중인 모션을 물리적으로 즉시 정지한다.
+        # (DSR 파이썬 래퍼가 아니라 컨트롤러 노드를 직접 호출 → robot_motion_dsr 미경유)
+        self.move_stop_client = self.create_client(
+            MoveStop, f'/{robot_motion.ROBOT_ID}/motion/move_stop',
+            callback_group=monitor_cb_group)
 
         # 액션 실행 스레드와 서비스 응답 콜백이 서로 다른 그룹/스레드에서 돌아야
         # execute_callback의 _done_event.wait()가 서비스 콜백을 막지 않는다.
@@ -44,6 +57,9 @@ class RobotArmNode(Node):
             DetectObject, '/detect_object', callback_group=client_cb_group)
         self.inventory_client = self.create_client(
             UpdateInventory, '/update_inventory', callback_group=client_cb_group)
+        # 컨베이어: place(move_to_conv) 완료 후 벨트를 10초 구동시킨다.
+        self.conveyor_client = self.create_client(
+            Trigger, '/conveyor/run', callback_group=client_cb_group)
 
         self._action_server = ActionServer(
             self,
@@ -69,11 +85,26 @@ class RobotArmNode(Node):
     def emergency_stop_callback(self, msg):
         self.emergency_stopped = msg.data
         if self.emergency_stopped:
-            self.get_logger().warn('긴급정지 신호 수신 - 작업 중단')
+            self.get_logger().warn('긴급정지 신호 수신 - 로봇 즉시 정지')
+            robot_motion.request_stop()  # 이후 모든 모션 무효화 (다시 안 움직임)
+            self._stop_robot()           # 진행 중 모션 물리 정지
+        else:
+            robot_motion.clear_stop()
+
+    def _stop_robot(self):
+        """컨트롤러 move_stop 서비스로 진행 중인 모션을 즉시 정지(DR_QSTOP)."""
+        if self.move_stop_client.service_is_ready():
+            req = MoveStop.Request()
+            req.stop_mode = 1  # DR_QSTOP: Quick stop (Stop Category 2)
+            self.move_stop_client.call_async(req)
+        else:
+            self.get_logger().warn('move_stop 서비스 미연결 - 물리 정지 생략')
 
     def goal_callback(self, goal_request):
-        if self.emergency_stopped:
-            return GoalResponse.REJECT
+        # 시작(start) 요청 = 사용자가 다시 작업을 시키는 것이므로, 비상정지 상태를
+        # 해제하고 작업을 재개한다. (비상정지 후엔 시작 누를 때까지 아무것도 안 함)
+        self.emergency_stopped = False
+        robot_motion.clear_stop()
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, goal_handle):
@@ -149,6 +180,10 @@ class RobotArmNode(Node):
         grabbed = robot_motion.pick_object(
             detect_response.center_x, detect_response.center_y, detect_response.angle)
 
+        # 파지 모션 중 비상정지/취소가 들어왔으면 재시도하지 말고 즉시 종료한다.
+        if self._check_abort():
+            return
+
         if grabbed:
             self._feedback_msg.event = PickAndPlace.Feedback.EVENT_GRABBED
             self._goal_handle.publish_feedback(self._feedback_msg)
@@ -190,18 +225,41 @@ class RobotArmNode(Node):
     # 3) 플레이스. 재고는 이미 차감됐으므로 여기서는 PLACED/DROPPED 피드백만 보낸다.
     # ------------------------------------------------------------------
     def _place_object(self):
+        if self._check_abort():
+            return
+
         if robot_motion.place_object():
             self._total_moved += 1
             self._feedback_msg.event = PickAndPlace.Feedback.EVENT_PLACED
             self._feedback_msg.moved_count = self._total_moved
             self._goal_handle.publish_feedback(self._feedback_msg)
-        else:
-            # 이동 중 낙하: 재고는 이미 차감된 상태로 두고, central_node가 이 이벤트를
-            # 받아 UI에 "컨베이어로 옮겨달라" 안내를 띄운다.
-            self._feedback_msg.event = PickAndPlace.Feedback.EVENT_DROPPED
-            self._goal_handle.publish_feedback(self._feedback_msg)
-            self.get_logger().warn(f'이동 중 낙하: {self._current_label}')
+            # 컨베이어에 안착했으니 벨트를 구동(10초)한 뒤 다음 물건으로 넘어간다.
+            self._request_conveyor()
+            return
 
+        # 이동 중 낙하: 재고는 이미 차감된 상태로 두고, central_node가 이 이벤트를
+        # 받아 UI에 "컨베이어로 옮겨달라" 안내를 띄운다. 벨트는 돌리지 않는다.
+        self._feedback_msg.event = PickAndPlace.Feedback.EVENT_DROPPED
+        self._goal_handle.publish_feedback(self._feedback_msg)
+        self.get_logger().warn(f'이동 중 낙하: {self._current_label}')
+        self._request_detect()
+
+    def _request_conveyor(self):
+        # 컨베이어 노드가 없어도 작업은 계속한다(벨트 구동만 건너뜀).
+        if not self.conveyor_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn('컨베이어 서비스(/conveyor/run) 없음 - 벨트 구동 건너뜀')
+            self._request_detect()
+            return
+        future = self.conveyor_client.call_async(Trigger.Request())
+        future.add_done_callback(self._on_conveyor_response)
+
+    def _on_conveyor_response(self, future):
+        response = future.result()
+        if response is None or not response.success:
+            msg = response.message if response is not None else '응답 없음'
+            self.get_logger().warn(f'컨베이어 구동 실패: {msg}')
+        else:
+            self.get_logger().info('컨베이어 구동 완료')
         self._request_detect()
 
     # ------------------------------------------------------------------

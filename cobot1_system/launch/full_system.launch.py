@@ -47,6 +47,8 @@ def generate_launch_description():
     )
 
     app_nodes = [
+        Node(package='cobot1_system', executable='camera_publisher', name='camera_publisher',
+             output='screen', parameters=[{'camera_index': camera_index}]),
         Node(package='cobot1_system', executable='camera_node', name='camera_node',
              output='screen', parameters=[{
                  'camera_index': camera_index,
@@ -59,10 +61,14 @@ def generate_launch_description():
              output='screen'),
         Node(package='cobot1_system', executable='central_node', name='central_node',
              output='screen'),
+        Node(package='cobot1_system', executable='ui_node', name='ui_node',
+             output='screen'),
+        Node(package='cobot1_system', executable='conveyor_node', name='conveyor_node',
+             output='screen'),
     ]
 
     # robot_arm_node의 connect()가 컨트롤러보다 먼저 돌면 응답을 기다리며 멈추므로
-    # 드라이버가 뜰 시간을 준 뒤 앱 노드를 실행한다.
+    # 드라이버가 뜰 시간을 준 뒤 앱 노드를 실행
     delayed_app = TimerAction(period=8.0, actions=app_nodes)
 
     return LaunchDescription(decls + [driver, delayed_app])

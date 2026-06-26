@@ -13,20 +13,19 @@ from ultralytics import YOLO
 
 from custom_interfaces.srv import DetectObject
 
-
 class CameraNode(Node):
     """
     camera_node.py 기준 통신 이름을 유지한 YOLO segmentation 서비스 노드.
 
     Publish:
-      - /image_raw              sensor_msgs/Image        원본 카메라 프레임
-      - /yolo/position_image    sensor_msgs/Image        YOLO 결과 시각화 이미지
+    - /yolo/position_image    sensor_msgs/Image        YOLO 결과 시각화 이미지
 
     Subscribe:
-      - /emergency_stop         std_msgs/Bool            긴급정지 신호
+    - /image_raw              sensor_msgs/Image        외부 카메라 프레임
+    - /emergency_stop         std_msgs/Bool            긴급정지 신호
 
     Service:
-      - /detect_object          custom_interfaces/srv/DetectObject
+    - /detect_object          custom_interfaces/srv/DetectObject
 
     DetectObject.srv:
       bool capture
@@ -40,13 +39,23 @@ class CameraNode(Node):
 
     def __init__(self):
         super().__init__('camera_node')
-
         # --------------------------------------------------
         # camera_node.py 기준 파라미터
-        # --------------------------------------------------
-        self.declare_parameter('camera_index', 2)
+        # --------------------------------------------------        
         self.declare_parameter('model_path', 'trained_yolo26_seg_best.pt')
         self.declare_parameter('confidence_threshold', 0.75)
+
+        # 화면 좌우 외곽에서 centroid가 옆면/원근 때문에 치우치는 경우 보정
+        self.declare_parameter('center_correction_enabled', True)
+        self.declare_parameter('left_x_threshold', 160.0)
+        self.declare_parameter('right_x_threshold', 400.0)
+        self.declare_parameter('left_x_offset', 50.0)
+        self.declare_parameter('right_x_offset', 50.0)
+
+        self.declare_parameter('bot_y_threshold', 160.0)
+        self.declare_parameter('top_y_threshold', 310.0)
+        self.declare_parameter('bot_y_offset', 50.0)
+        self.declare_parameter('top_y_offset', 50.0)
 
         # 통신 이름도 파라미터로 열어두되, 기본값은 camera_node.py 기준으로 고정
         self.declare_parameter('image_topic', '/image_raw')
@@ -55,20 +64,24 @@ class CameraNode(Node):
         self.declare_parameter('debug_image_topic', '/yolo/position_image')
         self.declare_parameter('publish_debug_image', True)
 
-        camera_index = int(self.get_parameter('camera_index').value)
-        self.get_logger().info(f"카메라 인덱스{camera_index}")
         model_path_param = str(self.get_parameter('model_path').value)
-        self.confidence_threshold = float(
-            self.get_parameter('confidence_threshold').value
-        )
+        self.confidence_threshold = float(self.get_parameter('confidence_threshold').value)
+
+        self.center_correction_enabled = bool(self.get_parameter('center_correction_enabled').value)
+        self.left_x_threshold = float(self.get_parameter('left_x_threshold').value)
+        self.right_x_threshold = float(self.get_parameter('right_x_threshold').value)
+        self.left_x_offset = float(self.get_parameter('left_x_offset').value)
+        self.right_x_offset = float(self.get_parameter('right_x_offset').value)
+        
+        self.top_y_threshold = float(self.get_parameter('top_y_threshold').value)
+        self.bot_y_threshold = float(self.get_parameter('bot_y_threshold').value)
+        self.top_y_offset = float(self.get_parameter('top_y_offset').value)
+        self.bot_y_offset = float(self.get_parameter('bot_y_offset').value)
+
 
         self.image_topic = str(self.get_parameter('image_topic').value)
-        self.emergency_stop_topic = str(
-            self.get_parameter('emergency_stop_topic').value
-        )
-        self.detect_service_name = str(
-            self.get_parameter('detect_service_name').value
-        )
+        self.emergency_stop_topic = str(self.get_parameter('emergency_stop_topic').value)
+        self.detect_service_name = str(self.get_parameter('detect_service_name').value)
         self.debug_image_topic = str(
             self.get_parameter('debug_image_topic').value
         )
@@ -81,15 +94,6 @@ class CameraNode(Node):
         self.emergency_stop_requested = False
 
         # --------------------------------------------------
-        # Camera open
-        # --------------------------------------------------
-        self.cap = cv2.VideoCapture(camera_index)
-        if not self.cap.isOpened():
-            self.get_logger().error(
-                f'카메라(index={camera_index})를 열 수 없습니다.'
-            )
-
-        # --------------------------------------------------
         # YOLO model load
         # --------------------------------------------------
         self.model_path = self._resolve_model_path(model_path_param)
@@ -99,9 +103,13 @@ class CameraNode(Node):
         # --------------------------------------------------
         # ROS communication - camera_node.py 기준 이름
         # --------------------------------------------------
-        self.image_pub = self.create_publisher(Image, self.image_topic, 10)
-
-        self.debug_image_pub = None
+        self.image_sub = self.create_subscription(
+            Image,
+            self.image_topic,
+            self.image_callback,
+            10
+        )
+        self.debug_image_pub = True
         if self.publish_debug_image:
             self.debug_image_pub = self.create_publisher(
                 Image,
@@ -122,11 +130,9 @@ class CameraNode(Node):
             self.detect_object_callback
         )
 
-        self.create_timer(0.1, self.capture_timer_callback)
-
         self.get_logger().info(
             'camera_node 시작됨 '
-            f'image_pub={self.image_topic}, '
+            f'image_sub={self.image_topic}, '
             f'emergency_sub={self.emergency_stop_topic}, '
             f'service={self.detect_service_name}, '
             f'debug_image={self.debug_image_topic}'
@@ -162,25 +168,19 @@ class CameraNode(Node):
     # --------------------------------------------------
     # Topic callbacks
     # --------------------------------------------------
+    def image_callback(self, msg):
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            self.latest_frame = frame
+        except Exception as exc:
+            self.get_logger().error(f'이미지 변환 실패: {exc}')
+
     def emergency_stop_callback(self, msg):
         self.emergency_stop_requested = bool(msg.data)
         if self.emergency_stop_requested:
             self.get_logger().warn('긴급정지 신호 수신: detect_object 응답을 found=False로 반환합니다.')
         else:
             self.get_logger().info('긴급정지 해제 신호 수신')
-
-    def capture_timer_callback(self):
-        ret, frame = self.cap.read()
-        if not ret:
-            self.get_logger().warn('카메라 프레임을 읽지 못했습니다.')
-            return
-
-        self.latest_frame = frame
-
-        msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-        msg.header.frame_id = 'camera_frame'
-        msg.header.stamp = self.get_clock().now().to_msg()
-        self.image_pub.publish(msg)
 
     # --------------------------------------------------
     # DetectObject service
@@ -288,6 +288,7 @@ class CameraNode(Node):
                         )
 
                     binary_mask = (raw_mask > 0.5).astype(np.uint8)
+
                     centroid = self._get_mask_centroid(binary_mask)
                     if centroid is not None:
                         center_x, center_y = centroid
@@ -314,6 +315,12 @@ class CameraNode(Node):
                     best_detection = detection
 
         if best_detection is not None:
+            # 최종 선택된 객체 1개에 대해서만 중심점 보정 적용
+            best_detection = self._correct_center_by_image_region(
+                best_detection,
+                image_width=w,
+                image_height=h
+            )
             vis_frame = self._draw_detection(vis_frame, best_detection)
 
         return best_detection, vis_frame
@@ -321,6 +328,67 @@ class CameraNode(Node):
     # --------------------------------------------------
     # Geometry helpers
     # --------------------------------------------------
+    def _correct_center_by_image_region(self, detection, image_width, image_height):
+        """
+        화면 외곽 영역에서 mask centroid가 치우칠 때 center를 보정한다.
+
+        x 방향:
+        - center_x <= left_x_threshold  : 오른쪽으로 이동, x += left_x_offset
+        - center_x >= right_x_threshold : 왼쪽으로 이동, x -= right_x_offset
+
+        y 방향:
+        - center_y <= bot_y_threshold : 아래쪽으로 이동, y += bot_y_offset
+        - center_y >= top_y_threshold : 위쪽으로 이동, y -= top_y_offset
+
+        OpenCV 이미지 좌표계:
+        - 왼쪽 위가 (0, 0)
+        - x는 오른쪽으로 갈수록 증가
+        - y는 아래쪽으로 갈수록 증가
+        """
+
+        if not self.center_correction_enabled:
+            detection['corrected'] = False
+            detection['original_center_x'] = float(detection['center_x'])
+            detection['original_center_y'] = float(detection['center_y'])
+            return detection
+
+        original_cx = float(detection['center_x'])
+        original_cy = float(detection['center_y'])
+
+        corrected_cx = original_cx
+        corrected_cy = original_cy
+
+        # x 방향 보정
+        if original_cx <= self.left_x_threshold:
+            corrected_cx = original_cx + self.left_x_offset
+
+        elif original_cx >= self.right_x_threshold:
+            corrected_cx = original_cx - self.right_x_offset
+
+        # y 방향 보정
+        if original_cy <= self.bot_y_threshold:
+            corrected_cy = original_cy + self.bot_y_offset
+
+        elif original_cy >= self.top_y_threshold:
+            corrected_cy = original_cy - self.top_y_offset
+
+        # 이미지 범위 제한
+        corrected_cx = max(0.0, min(float(image_width - 1), corrected_cx))
+        corrected_cy = max(0.0, min(float(image_height - 1), corrected_cy))
+
+        detection['center_x'] = float(corrected_cx)
+        detection['center_y'] = float(corrected_cy)
+
+        detection['original_center_x'] = float(original_cx)
+        detection['original_center_y'] = float(original_cy)
+
+        detection['corrected'] = bool(
+            abs(corrected_cx - original_cx) > 1e-6
+            or abs(corrected_cy - original_cy) > 1e-6
+        )
+
+        return detection
+
     def _get_mask_centroid(self, binary_mask):
         mask_uint8 = binary_mask.astype(np.uint8)
         moment = cv2.moments(mask_uint8)
@@ -413,7 +481,39 @@ class CameraNode(Node):
             2
         )
 
+        # 최종 중심점: 빨간색
         cv2.circle(vis, (int(cx), int(cy)), 5, (0, 0, 255), -1)
+
+        # 보정이 적용된 경우, 보정 전 중심점을 보라색으로 함께 표시
+        if detection.get('corrected', False):
+            original_cx = float(detection.get('original_center_x', cx))
+            original_cy = float(detection.get('original_center_y', cy))
+
+            cv2.circle(
+                vis,
+                (int(original_cx), int(original_cy)),
+                5,
+                (255, 0, 255),
+                -1
+            )
+
+            cv2.line(
+                vis,
+                (int(original_cx), int(original_cy)),
+                (int(cx), int(cy)),
+                (255, 0, 255),
+                2
+            )
+
+            cv2.putText(
+                vis,
+                'corrected',
+                (int(cx) + 10, int(cy) + 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 0, 255),
+                2
+            )
 
         cv2.putText(
             vis,
@@ -462,10 +562,6 @@ class CameraNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         self.debug_image_pub.publish(msg)
 
-    def destroy_node(self):
-        if self.cap is not None:
-            self.cap.release()
-        super().destroy_node()
 
 
 def main(args=None):

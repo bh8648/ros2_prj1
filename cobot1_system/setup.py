@@ -31,9 +31,12 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_node = cobot1_system.camera_node:main',
+            'camera_publisher = cobot1_system.camera_publisher:main',
             'central_node = cobot1_system.central_node:main',
             'robot_arm_node = cobot1_system.robot_arm_node:main',
             'db_node = cobot1_system.db_node:main',
+            'ui_node = cobot1_system.ui_node:main',
+            'conveyor_node = cobot1_system.conveyor_node:main',
         ],
     },
 )

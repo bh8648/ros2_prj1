@@ -34,6 +34,13 @@ def generate_launch_description():
 
         Node(
             package='cobot1_system',
+            executable='camera_publisher',
+            name='camera_publisher',
+            output='screen',
+            parameters=[{'camera_index': camera_index}],
+        ),
+        Node(
+            package='cobot1_system',
             executable='camera_node',
             name='camera_node',
             output='screen',
@@ -59,6 +66,18 @@ def generate_launch_description():
             package='cobot1_system',
             executable='central_node',
             name='central_node',
+            output='screen',
+        ),
+        Node(
+            package='cobot1_system',
+            executable='ui_node',
+            name='ui_node',
+            output='screen',
+        ),
+        Node(
+            package='cobot1_system',
+            executable='conveyor_node',
+            name='conveyor_node',
             output='screen',
         ),
     ])
