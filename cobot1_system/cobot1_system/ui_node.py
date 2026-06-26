@@ -79,7 +79,7 @@ class BasketHMI(QWidget):
         self._last_status = None
 
         self.setWindowTitle("장바구니 물체 분류 HMI")
-        self.resize(1200, 700)
+        self.resize(1300, 750)
 
         self.init_ui()
 
@@ -118,25 +118,26 @@ class BasketHMI(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
         self.status.setStyleSheet("color:white; font-size:24px; padding:15px;")
 
+        # 버튼 디자인/레이아웃: ui_node2 기준 (작업시작 / 장바구니 치움 / 비상정지)
         self.btn_on = QPushButton("작업 시작")
         self.btn_on.setStyleSheet("""
-            QPushButton{ background:#2E7D32; color:white; font-size:28px;
-                font-weight:bold; padding:25px; border-radius:15px; }
+            QPushButton{ background:#2E7D32; color:white; font-size:30px;
+                font-weight:bold; padding:28px; border-radius:15px; }
             QPushButton:hover{ background:#43A047; }
         """)
 
-        self.btn_clear = QPushButton("화면 초기화")
+        self.btn_clear = QPushButton("장바구니 치움")
         self.btn_clear.setStyleSheet("""
-            QPushButton{ background:#37474F; color:white; font-size:28px;
+            QPushButton{ background:#1565C0; color:white; font-size:28px;
                 font-weight:bold; padding:25px; border-radius:15px; }
-            QPushButton:hover{ background:#546E7A; }
+            QPushButton:hover{ background:#1976D2; }
         """)
 
         self.btn_estop = QPushButton("비상 정지")
         self.btn_estop.setStyleSheet("""
-            QPushButton{ background:#C62828; color:white; font-size:28px;
-                font-weight:bold; padding:25px; border-radius:15px; }
-            QPushButton:hover{ background:#E53935; }
+            QPushButton{ background:#B71C1C; color:white; font-size:32px;
+                font-weight:bold; padding:30px; border-radius:15px; }
+            QPushButton:hover{ background:#D32F2F; }
         """)
 
         self.btn_on.clicked.connect(self.on_start)
@@ -150,20 +151,38 @@ class BasketHMI(QWidget):
         left_layout.addSpacing(20)
         left_layout.addWidget(self.btn_on)
         left_layout.addWidget(self.btn_clear)
-        left_layout.addWidget(self.btn_estop)
         left_layout.addStretch()
+        left_layout.addWidget(self.btn_estop)   # 비상정지는 맨 아래
 
+        # 카메라 창: ui_node2 기준 크기. 실제 영상은 update_camera에서 채운다.
         camera_title = QLabel("카메라 영상")
         camera_title.setAlignment(Qt.AlignCenter)
         camera_title.setStyleSheet("color:white; font-size:30px; font-weight:bold;")
 
         self.camera = QLabel("Camera")
         self.camera.setAlignment(Qt.AlignCenter)
-        self.camera.setMinimumSize(560, 420)
+        self.camera.setMinimumSize(560, 330)
         self.camera.setStyleSheet("""
             background:#333333; color:#DDDDDD; font-size:28px;
             border:2px solid gray; border-radius:15px;
         """)
+
+        # 물건 목록/수량 표 (db 창). 화면엔 두되 실제 DB 연동은 아직 안 함 →
+        # 기본 항목만 정적으로 표시. (TODO: /item_list 등으로 연동 시 update_item_table 추가)
+        table_title = QLabel("물건 목록 / 수량")
+        table_title.setStyleSheet("color:white; font-size:22px; font-weight:bold;")
+
+        self.item_table = QTableWidget()
+        self.item_table.setColumnCount(2)
+        self.item_table.setHorizontalHeaderLabels(["물건 이름", "수량"])
+        self.item_table.horizontalHeader().setStretchLastSection(True)
+        self.item_table.setStyleSheet("""
+            QTableWidget{ background:#111111; color:white; font-size:18px;
+                gridline-color:#555555; border:1px solid #555555; }
+            QHeaderView::section{ background:#222222; color:white; font-size:18px;
+                font-weight:bold; border:1px solid #555555; padding:6px; }
+        """)
+        self.set_default_items()
 
         log_title = QLabel("작업 로그")
         log_title.setStyleSheet("color:white; font-size:22px; font-weight:bold;")
@@ -173,8 +192,12 @@ class BasketHMI(QWidget):
         self.log.setStyleSheet("background:#111111; color:white; font-size:18px; border:1px solid #555555;")
         self.log.append("[대기] 장바구니를 올려주세요")
 
+        # 우측: 카메라 + 물건목록표 + 로그
         right_layout.addWidget(camera_title)
         right_layout.addWidget(self.camera)
+        right_layout.addSpacing(10)
+        right_layout.addWidget(table_title)
+        right_layout.addWidget(self.item_table)
         right_layout.addSpacing(10)
         right_layout.addWidget(log_title)
         right_layout.addWidget(self.log)
@@ -182,6 +205,22 @@ class BasketHMI(QWidget):
         main_layout.addLayout(left_layout, 1)
         main_layout.addLayout(right_layout, 1)
         self.setLayout(main_layout)
+
+    def set_default_items(self):
+        """db 연동 전까지 보여줄 기본 물건 목록 (정적)."""
+        default_items = [
+            ("초코칩", "1"),
+            ("면봉", "1"),
+            ("포테토칩", "1"),
+            ("파우치", "1"),
+            ("치약", "1"),
+            ("물티슈", "1"),
+            ("젠가", "1"),
+        ]
+        self.item_table.setRowCount(len(default_items))
+        for row, (name, qty) in enumerate(default_items):
+            self.item_table.setItem(row, 0, QTableWidgetItem(name))
+            self.item_table.setItem(row, 1, QTableWidgetItem(qty))
 
     # ------------------------- 버튼 핸들러 -------------------------
     def on_start(self):
@@ -204,7 +243,7 @@ class BasketHMI(QWidget):
     def on_clear(self):
         self.message.setText("장바구니를 올려주세요")
         self.status.setText("상태 : 대기")
-        self.log.append("[사용자] 화면 초기화")
+        self.log.append("[사용자] 장바구니 치움")
 
     def on_estop(self):
         self.ros_node.publish_estop(True)

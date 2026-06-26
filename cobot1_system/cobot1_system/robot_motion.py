@@ -159,7 +159,9 @@ def connect():
     _node.get_logger().info('DSR_ROBOT2 연동 완료 (dsr01 / m0609)')
 
 def move_target_pose(robot_x, robot_y):  # 로봇 평면 좌표로 물건 위로 이동
+        dsr.wait(0.5)
         grip_close()
+        dsr.wait(0.5)
         obj_pose = dsr.posx(
             robot_x,
             robot_y,
