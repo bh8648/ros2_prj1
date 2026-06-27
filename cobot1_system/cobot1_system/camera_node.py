@@ -34,6 +34,7 @@ class CameraNode(Node):
       float64 center_x
       float64 center_y
       float64 angle
+      int32 label_id
       string label
     """
 
@@ -190,6 +191,7 @@ class CameraNode(Node):
         response.center_x = 0.0
         response.center_y = 0.0
         response.angle = 0.0
+        response.label_id = -1
         response.label = ''
 
         if not request.capture:
@@ -218,6 +220,7 @@ class CameraNode(Node):
         response.center_x = float(detection['center_x'])
         response.center_y = float(detection['center_y'])
         response.angle = float(detection['angle'])
+        response.label_id = int(detection['label_id'])
         response.label = str(detection['label'])
 
         self.get_logger().info(
@@ -300,6 +303,7 @@ class CameraNode(Node):
 
                 detection = {
                     'label': label,
+                    'label_id': cls_id,
                     'confidence': confidence,
                     'center_x': float(center_x),
                     'center_y': float(center_y),
@@ -326,7 +330,7 @@ class CameraNode(Node):
         return best_detection, vis_frame
 
     # --------------------------------------------------
-    # Geometry helpers
+    # Geometry helpers (카메라 외곽은 실제 포지션과 차이가 있기에 offset값을 넣어 줌)
     # --------------------------------------------------
     def _correct_center_by_image_region(self, detection, image_width, image_height):
         """

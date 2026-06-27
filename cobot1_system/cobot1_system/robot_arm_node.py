@@ -11,7 +11,7 @@ from std_srvs.srv import Trigger
 from dsr_msgs2.srv import MoveStop
 
 from custom_interfaces.action import PickAndPlace
-from custom_interfaces.srv import DetectObject, UpdateInventory
+from custom_interfaces.srv import DetectObject
 
 from . import robot_motion
 
@@ -55,8 +55,7 @@ class RobotArmNode(Node):
 
         self.detect_client = self.create_client(
             DetectObject, '/detect_object', callback_group=client_cb_group)
-        self.inventory_client = self.create_client(
-            UpdateInventory, '/update_inventory', callback_group=client_cb_group)
+       
         # 컨베이어: place(move_to_conv) 완료 후 벨트를 10초 구동시킨다.
         self.conveyor_client = self.create_client(
             Trigger, '/conveyor/run', callback_group=client_cb_group)
@@ -74,6 +73,7 @@ class RobotArmNode(Node):
         # 현재 처리 중인 goal의 진행 상태
         self._goal_handle = None
         self._feedback_msg = None
+        self._current_label_id = -1
         self._current_label = ''
         self._total_moved = 0
         self._retry_count = 0
@@ -155,7 +155,9 @@ class RobotArmNode(Node):
             return
 
         self._retry_count = 0
+        self._current_label_id = response.label_id
         self._current_label = response.label or 'unknown'
+        self._feedback_msg.current_label_id = self._current_label_id
         self._feedback_msg.current_object = self._current_label
         self._feedback_msg.moved_count = self._total_moved
         self._start_grasp(response)
@@ -187,9 +189,8 @@ class RobotArmNode(Node):
         if grabbed:
             self._feedback_msg.event = PickAndPlace.Feedback.EVENT_GRABBED
             self._goal_handle.publish_feedback(self._feedback_msg)
-            # 재고는 바구니에서 들어올린 시점에 차감한다. 이후 이동 중 낙하해도
-            # 이미 바구니를 떠난 물건이므로 재고는 그대로 줄어든 채 둔다.
-            self._request_inventory_update()
+            
+            self._place_object()
             return
 
         self._retry_count += 1
@@ -201,28 +202,9 @@ class RobotArmNode(Node):
         self.get_logger().warn(f'파지 실패 ({self._retry_count}/{MAX_RETRY}): {self._current_label}')
         self._start_grasp(detect_response)
 
-    def _request_inventory_update(self):
-        # db 노드가 없어도 작업은 계속한다(재고 반영만 건너뜀). wait_for_service로
-        # 서버가 없으면 바로 place 단계로 넘어가 액션이 멈추지 않게 한다.
-        if not self.inventory_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn(
-                f'재고 서비스(/update_inventory) 응답 없음: {self._current_label}')
-            self._place_object()
-            return
-
-        request = UpdateInventory.Request()
-        request.item_name = self._current_label
-        future = self.inventory_client.call_async(request)
-        future.add_done_callback(self._on_inventory_response)
-
-    def _on_inventory_response(self, future):
-        response = future.result()
-        if response is None or not response.success:
-            self.get_logger().warn(f'재고 업데이트 실패: {self._current_label}')
-        self._place_object()
-
     # ------------------------------------------------------------------
-    # 3) 플레이스. 재고는 이미 차감됐으므로 여기서는 PLACED/DROPPED 피드백만 보낸다.
+    # 3) 플레이스. 컨베이어에 정상적으로 놓이면 PLACED feedback을 보낸다.
+    #    재고 차감은 central_node가 PLACED feedback을 받은 뒤 수행한다.
     # ------------------------------------------------------------------
     def _place_object(self):
         if self._check_abort():
@@ -237,7 +219,7 @@ class RobotArmNode(Node):
             self._request_conveyor()
             return
 
-        # 이동 중 낙하: 재고는 이미 차감된 상태로 두고, central_node가 이 이벤트를
+        # 이동 중 낙하: PLACED가 아니므로 재고 차감은 하지 않는다., central_node가 이 이벤트를
         # 받아 UI에 "컨베이어로 옮겨달라" 안내를 띄운다. 벨트는 돌리지 않는다.
         self._feedback_msg.event = PickAndPlace.Feedback.EVENT_DROPPED
         self._goal_handle.publish_feedback(self._feedback_msg)

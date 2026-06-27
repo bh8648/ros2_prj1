@@ -240,6 +240,8 @@ class BasketHMI(QWidget):
         else:
             self.log.append(f"[ROS2] 시작 실패: {resp.message}")
 
+            
+
     def on_clear(self):
         self.message.setText("장바구니를 올려주세요")
         self.status.setText("상태 : 대기")

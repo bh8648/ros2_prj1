@@ -1,12 +1,81 @@
+# =========================
+# ROS2 / colcon build output
+# =========================
 build/
 install/
 log/
-src/
-test/
-ui/
-*.so
-*.o
-__pycache__/
+
+# colcon test result
+.colcon/
 *.pyc
-cobot1_system/models/*.pt
+__pycache__/
+.pytest_cache/
+
+# =========================
+# Python
+# =========================
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+*.log
+
+# virtual environment
+venv/
+.venv/
+env/
+
+# =========================
+# VSCode / IDE
+# =========================
 .vscode/
+.idea/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# ROS runtime / local data
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+*.bag
+*.bag2/
+rosbag2_*/
+
+# =========================
+# YOLO / ML model weights
+# =========================
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# dataset / training outputs
+runs/
+datasets/
+dataset/
+weights/
+
+# =========================
+# Camera / image outputs
+# =========================
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.jpeg
+*.png
+*.bmp
+
+# =========================
+# Secrets / local config
+# =========================
+.env
+*.key
+*.pem

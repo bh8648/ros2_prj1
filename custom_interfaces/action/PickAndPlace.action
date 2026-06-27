@@ -13,5 +13,6 @@ uint8 EVENT_PLACED=2        # 컨베이어 안착
 uint8 EVENT_RETRY=3         # 파지 실패, 재시도 중
 uint8 EVENT_DROPPED=4       # 이동 중 낙하 (동작은 계속)
 int32 moved_count           # 지금까지 옮긴 개수
-string current_object       # 현재 처리 중인 물건 클래스
+int32 current_label_id     # 현재 처리 중인 물건 클래스 id
+string current_object       # 현재 처리 중인 물건 클래스명
 uint8 event

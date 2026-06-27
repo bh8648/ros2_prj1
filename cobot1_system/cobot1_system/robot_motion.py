@@ -192,7 +192,7 @@ def force_down():  # 힘 제어 하강 함수
         if _emergency:  # 비상정지: 하강 대기 루프 탈출
             break
         force_ext = dsr.get_tool_force(dsr.DR_BASE)
-        print(f"force_ext = {force_ext}")
+        # print(f"force_ext = {force_ext}")
         if force_ext[2] >= 6:
             break
         time.sleep(0.5)
