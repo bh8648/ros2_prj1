@@ -33,6 +33,8 @@ class UiRosNode(Node):
 
     def __init__(self):
         super().__init__('ui_node')
+        self.latest_frame = None
+        self.latest_inventory = None
 
         self.start_client = self.create_client(StartTask, '/start_task') # 와 통신
         self.estop_pub = self.create_publisher(Bool, '/emergency_stop', 10) # 와 통신
@@ -40,7 +42,6 @@ class UiRosNode(Node):
         self.create_subscription(String, '/inventory_status', self.inventory_callback, 10)
 
         self.bridge = CvBridge()
-        self.latest_frame = None
 
         """
         '/yolo/position_image' : 인식된 장면 재생
