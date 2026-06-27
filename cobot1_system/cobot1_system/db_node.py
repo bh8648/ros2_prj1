@@ -78,7 +78,7 @@ class DbNode(Node):
 
         self.inventory_pub = self.create_publisher(
             String,
-            '/inventory_state',
+            '/inventory_status',
             inventory_qos
         )
 
