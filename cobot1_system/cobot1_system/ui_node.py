@@ -4,6 +4,7 @@ import sys
 import cv2
 import numpy as np
 import rclpy
+import json
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -33,9 +34,10 @@ class UiRosNode(Node):
     def __init__(self):
         super().__init__('ui_node')
 
-        self.start_client = self.create_client(StartTask, '/start_task')
-        self.estop_pub = self.create_publisher(Bool, '/emergency_stop', 10)
-        self.create_subscription(String, '/central_status', self.status_callback, 10)
+        self.start_client = self.create_client(StartTask, '/start_task') # 와 통신
+        self.estop_pub = self.create_publisher(Bool, '/emergency_stop', 10) # 와 통신
+        self.create_subscription(String, '/central_status', self.status_callback, 10) # central_node와 통신
+        self.create_subscription(String, '/inventory_status', self.inventory_callback, 10)
 
         self.bridge = CvBridge()
         self.latest_frame = None
@@ -43,7 +45,6 @@ class UiRosNode(Node):
         """
         '/yolo/position_image' : 인식된 장면 재생
         '/image_raw' : 순수 카메라 장면 재생
-
         """
         self.create_subscription(Image, '/yolo/position_image', self.image_callback, 10)
 
@@ -63,6 +64,12 @@ class UiRosNode(Node):
 
     def status_callback(self, msg):
         self.latest_status = msg.data
+    
+    def inventory_callback(self, msg):
+        try:
+            self.latest_inventory = json.loads(msg.data)
+        except Exception as e:
+            self.get_logger().warn(f"재고 상태 파싱 실패: {e}")
 
     def image_callback(self, msg):
         try:
@@ -76,7 +83,8 @@ class BasketHMI(QWidget):
         super().__init__()
 
         self.ros_node = ros_node
-        self._last_status = None
+        self._last_status = None # central_node로부터 받아올 스테이터스
+        self._last_inventory_text = None # db노드로부터 받아올 인벤토리 정보
 
         self.setWindowTitle("장바구니 물체 분류 HMI")
         self.resize(1300, 750)
@@ -91,6 +99,10 @@ class BasketHMI(QWidget):
         self.ui_timer = QTimer()
         self.ui_timer.timeout.connect(self.update_status_from_ros)
         self.ui_timer.start(100)
+
+        self.inventory_timer = QTimer()
+        self.inventory_timer.timeout.connect(self.update_inventory_table)
+        self.inventory_timer.start(100)
 
         self.cam_timer = QTimer()
         self.cam_timer.timeout.connect(self.update_camera)
@@ -207,15 +219,15 @@ class BasketHMI(QWidget):
         self.setLayout(main_layout)
 
     def set_default_items(self):
-        """db 연동 전까지 보여줄 기본 물건 목록 (정적)."""
+        "DB 상태를 받기 전까지 임시로 보여줄 기본 물건 목록."
         default_items = [
-            ("초코칩", "1"),
-            ("면봉", "1"),
-            ("포테토칩", "1"),
-            ("파우치", "1"),
-            ("치약", "1"),
-            ("물티슈", "1"),
-            ("젠가", "1"),
+            ("초코칩", "99"),
+            ("면봉", "99"),
+            ("포테토칩", "99"),
+            ("파우치", "99"),
+            ("치약", "99"),
+            ("물티슈", "99"),
+            ("젠가", "99"),
         ]
         self.item_table.setRowCount(len(default_items))
         for row, (name, qty) in enumerate(default_items):
@@ -225,16 +237,22 @@ class BasketHMI(QWidget):
     # ------------------------- 버튼 핸들러 -------------------------
     def on_start(self):
         self.log.append("[사용자] 작업 시작 버튼 클릭")
+        self.ros_node.publish_estop(False)
         future = self.ros_node.start_task()
         if future is None:
             self.log.append("[오류] /start_task 서비스 준비 안 됨 (central_node 확인)")
             return
         future.add_done_callback(self._on_start_response)
-        self.ros_node.publish_estop(False)
+        
 
     def _on_start_response(self, future):
-        # ros_spin이 메인 스레드에서 돌므로 이 콜백도 메인 스레드 → Qt 위젯 접근 안전
-        resp = future.result()
+        try:
+            # ros_spin이 메인 스레드에서 돌므로 이 콜백도 메인 스레드 → Qt 위젯 접근 안전
+            resp = future.result()
+        except Exception as e:
+            self.log.append(f"[오류] 작업 시작 서비스 호출 실패: {e}")
+            return
+
         if resp.success:
             self.log.append("[ROS2] 작업 시작됨")
         else:
@@ -286,6 +304,38 @@ class BasketHMI(QWidget):
         elif s.startswith('ERROR'):
             self.message.setText("오류 발생")
             self.status.setText(f"상태 : {s}")
+
+    def update_inventory_table(self):
+        inventory = self.ros_node.latest_inventory
+
+        if not inventory:
+            return
+
+        inventory_text = str(inventory)
+        if inventory_text == self._last_inventory_text:
+            return
+        self._last_inventory_text = inventory_text
+
+        name_map = {
+            "TOY_TIMBER": "젠가",
+            "chocochip": "초코칩",
+            "cotton_swab": "면봉",
+            "potato_chip": "감자칩",
+            "pouch": "파우치",
+            "tooth_paste": "치약",
+            "wet_wipes": "물티슈",
+        }
+
+        self.item_table.setRowCount(len(inventory))
+
+        for row, item in enumerate(inventory):
+            item_name = str(item.get("item_name", "unknown"))
+            quantity = str(item.get("quantity", 0))
+
+            display_name = name_map.get(item_name, item_name)
+
+            self.item_table.setItem(row, 0, QTableWidgetItem(display_name))
+            self.item_table.setItem(row, 1, QTableWidgetItem(quantity))
 
     def update_camera(self):
         frame = self.ros_node.latest_frame
