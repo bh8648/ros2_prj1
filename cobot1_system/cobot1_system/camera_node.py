@@ -55,8 +55,8 @@ class CameraNode(Node):
 
         self.declare_parameter('bot_y_threshold', 160.0)
         self.declare_parameter('top_y_threshold', 310.0)
-        self.declare_parameter('bot_y_offset', 50.0)
-        self.declare_parameter('top_y_offset', 50.0)
+        self.declare_parameter('bot_y_offset', 35.0)
+        self.declare_parameter('top_y_offset', 35.0)
 
         # 통신 이름도 파라미터로 열어두되, 기본값은 camera_node.py 기준으로 고정
         self.declare_parameter('image_topic', '/image_raw')
