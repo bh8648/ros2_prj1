@@ -7,6 +7,7 @@ import rclpy
 import json
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, String
 
@@ -39,7 +40,12 @@ class UiRosNode(Node):
         self.start_client = self.create_client(StartTask, '/start_task') # 와 통신
         self.estop_pub = self.create_publisher(Bool, '/emergency_stop', 10) # 와 통신
         self.create_subscription(String, '/central_status', self.status_callback, 10) # central_node와 통신
-        self.create_subscription(String, '/inventory_status', self.inventory_callback, 10)
+        inventory_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(String, '/inventory_status', self.inventory_callback, inventory_qos)
 
         self.bridge = CvBridge()
 

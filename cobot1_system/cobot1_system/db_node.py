@@ -31,7 +31,7 @@ class DbNode(Node):
         1. 실행 시 SQLite inventory 테이블 확인/생성
         2. 테이블이 비어 있으면 각 물품 수량을 initial_stock개로 초기화
         3. /update_inventory 서비스 요청을 받으면 해당 class_id 수량 -1
-        4. 재고가 바뀌면 /inventory_state 토픽으로 UI에 최신 재고 전달
+        4. 재고가 바뀌면 /inventory_status 토픽으로 UI에 최신 재고 전달
 
     통신:
         Subscribe:
@@ -250,7 +250,7 @@ class DbNode(Node):
         msg.data = json.dumps(inventory_list, ensure_ascii=False)
 
         self.inventory_pub.publish(msg)
-        self.get_logger().info(f'/inventory_state 발행: {msg.data}')
+        self.get_logger().info(f'/inventory_staus 발행: {msg.data}')
 
     def destroy_node(self):
         if hasattr(self, 'conn'):
