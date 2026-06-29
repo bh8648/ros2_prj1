@@ -48,15 +48,20 @@ class CameraNode(Node):
 
         # 화면 좌우 외곽에서 centroid가 옆면/원근 때문에 치우치는 경우 보정
         self.declare_parameter('center_correction_enabled', True)
-        self.declare_parameter('left_x_threshold', 160.0)
-        self.declare_parameter('right_x_threshold', 400.0)
-        self.declare_parameter('left_x_offset', 50.0)
-        self.declare_parameter('right_x_offset', 50.0)
+        self.declare_parameter('left_x_threshold', 120.0)
+        self.declare_parameter('right_x_threshold', 440.0)
+        self.declare_parameter('left_x_threshold2', 130.0)
+        self.declare_parameter('right_x_threshold2', 470.0)
+        self.declare_parameter('left_x_offset', 20.0)
+        self.declare_parameter('right_x_offset', 20.0)
+        self.declare_parameter('left_x_offset2', 70.0)
+        self.declare_parameter('right_x_offset2', 70.0)
 
-        self.declare_parameter('bot_y_threshold', 160.0)
-        self.declare_parameter('top_y_threshold', 310.0)
-        self.declare_parameter('bot_y_offset', 35.0)
-        self.declare_parameter('top_y_offset', 35.0)
+        self.declare_parameter('bot_y_threshold', 180.0)
+        self.declare_parameter('top_y_threshold', 330.0)
+        self.declare_parameter('bot_y_offset', 25.0)
+        self.declare_parameter('top_y_offset', 25.0)
+
 
         # 통신 이름도 파라미터로 열어두되, 기본값은 camera_node.py 기준으로 고정
         self.declare_parameter('image_topic', '/image_raw')
@@ -71,8 +76,12 @@ class CameraNode(Node):
         self.center_correction_enabled = bool(self.get_parameter('center_correction_enabled').value)
         self.left_x_threshold = float(self.get_parameter('left_x_threshold').value)
         self.right_x_threshold = float(self.get_parameter('right_x_threshold').value)
+        self.left_x_threshold2 = float(self.get_parameter('left_x_threshold2').value)
+        self.right_x_threshold2 = float(self.get_parameter('right_x_threshold2').value)
         self.left_x_offset = float(self.get_parameter('left_x_offset').value)
         self.right_x_offset = float(self.get_parameter('right_x_offset').value)
+        self.left_x_offset2 = float(self.get_parameter('left_x_offset2').value)
+        self.right_x_offset2 = float(self.get_parameter('right_x_offset2').value)
         
         self.top_y_threshold = float(self.get_parameter('top_y_threshold').value)
         self.bot_y_threshold = float(self.get_parameter('bot_y_threshold').value)
@@ -349,6 +358,7 @@ class CameraNode(Node):
         - x는 오른쪽으로 갈수록 증가
         - y는 아래쪽으로 갈수록 증가
         """
+        
 
         if not self.center_correction_enabled:
             detection['corrected'] = False
@@ -359,15 +369,25 @@ class CameraNode(Node):
         original_cx = float(detection['center_x'])
         original_cy = float(detection['center_y'])
 
+        self.get_logger().info(f"x : {original_cx}, y: {original_cy}")
         corrected_cx = original_cx
         corrected_cy = original_cy
 
         # x 방향 보정
         if original_cx <= self.left_x_threshold:
-            corrected_cx = original_cx + self.left_x_offset
+            if original_cx <= self.left_x_threshold2:
+                corrected_cx = original_cx + self.left_x_offset2    
+            else:
+                corrected_cx = original_cx + self.left_x_offset
 
         elif original_cx >= self.right_x_threshold:
-            corrected_cx = original_cx - self.right_x_offset
+            if original_cx >= self.right_x_threshold2:
+                corrected_cx = original_cx - self.right_x_offset2
+
+            else: 
+                corrected_cx = original_cx - self.right_x_offset
+            
+        
 
         # y 방향 보정
         if original_cy <= self.bot_y_threshold:

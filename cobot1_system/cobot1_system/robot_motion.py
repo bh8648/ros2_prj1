@@ -85,10 +85,10 @@ bot_right = [611.00, -63.00]
 # 로봇 좌표(top_left ~ bot_right, 위에 정의)는 장바구니 물리 위치가 바뀌지
 # 않는 한 그대로 둔다. 픽셀↔로봇은 같은 모서리끼리 같은 순서로 대응돼야 한다.
 # ============================================================================
-top_left_px = [483, 455]
-top_right_px = [74, 466]
-bot_left_px = [479, 55]
-bot_right_px = [88, 31]
+top_left_px = [499, 465]
+top_right_px = [74, 467]
+bot_left_px = [492, 70]
+bot_right_px = [98, 41]
 
 
 def _compute_homography():
@@ -111,8 +111,8 @@ IMG2ROBOT_H = _compute_homography()
 # 생기는 일정한 편차를 잡는다. 실측에서 TCP가 물건보다 +x로 ~40mm 치우쳐
 # OFFSET_X로 당긴다. TCP가 반대로 틀어지면 부호를 뒤집고, 위치마다 편차가
 # 다르면 상수 보정이 아니라 캘리브레이션 재측정이 필요하다.
-OFFSET_X = 0.0
-OFFSET_Y = 0.0
+OFFSET_X = -15.0
+OFFSET_Y = 30.0
 
 
 def image_to_robot(px, py):
@@ -159,6 +159,9 @@ def connect():
     _node.get_logger().info('DSR_ROBOT2 연동 완료 (dsr01 / m0609)')
 
 def move_target_pose(robot_x, robot_y):  # 로봇 평면 좌표로 물건 위로 이동
+        force1 = dsr.get_tool_force(dsr.DR_BASE)
+        _node.get_logger().info(f"무게 확인용. : {force1}")
+
         dsr.wait(0.5)
         grip_close()
         dsr.wait(0.5)
@@ -215,19 +218,23 @@ def press_move():
         return
 
     pose_press_init = dsr.get_current_posx()[0]
-    # 힘제어 전에 순응 제어 모드 진입 필수. 이게 없으면 set_desired_force가 안 걸리고
-    # movel이 실행되지 않는다(로봇 정지). force_down과 동일한 순서.
+    dsr.wait(1.0)
+
     dsr.task_compliance_ctrl(stx=[3000, 3000, 500, 300, 300, 300])
     time.sleep(0.5)
 
     dsr.set_desired_force(
-        fd=[0, 0, -25, 0, 0, 0], dir=[0, 0, 1, 0, 0, 0], mod=dsr.DR_FC_MOD_REL
+        fd=[0, 0, -20, 0, 0, 0], dir=[0, 0, 1, 0, 0, 0], mod=dsr.DR_FC_MOD_REL
     )
+    dsr.wait(2.0)
     time.sleep(0.5)
 
-    dsr.movel([prime_pose[0], pose_press_init[1], pose_press_init[2], prime_pose[3], prime_pose[4], prime_pose[5]], VELOCITY, ACC, ref = dsr.DR_BASE)
-    dsr.wait(0.5)
 
+    # force 제어가 켜진 상태의 동기 movel은 Z가 목표에 도달 못 해 완료 신호가 안 와서
+    # 영영 리턴하지 않는다(→ 아래 release_force까지 못 내려감). 비동기 amovel로 던지고
+    # 궤적 시간(3.0s)만큼 기다린 뒤 직접 force를 푼다.
+    dsr.amovel([prime_pose[0], prime_pose[1], pose_press_init[2] - 5.0, prime_pose[3], prime_pose[4], prime_pose[5]], time=3.0, ref = dsr.DR_BASE)
+    time.sleep(3.0)
     dsr.release_force()
     time.sleep(0.5)
 
@@ -235,7 +242,10 @@ def press_move():
     dsr.release_compliance_ctrl()
     time.sleep(0.5)
 
-    dsr.movel([0, 0, -15, 0, 0, 0], VELOCITY, ACC, ref=dsr.DR_TOOL)
+
+    lift_pose = dsr.get_current_posx()[0]
+    lift_pose[2] += 20.00
+    dsr.movel(lift_pose, VELOCITY, ACC, ref=dsr.DR_BASE)
     dsr.wait(0.5)
 
 
@@ -249,7 +259,7 @@ def pick_up(max_try=5):  # z축 높이 차이에 따라 그리퍼 위치 조절 
     print(f"z_diff = {z_diff}, cur_z = {cur_pos[2]}")
 
     # 1. 살짝 위로 (여유 공간)
-    cur_pos[2] += 5.00
+    cur_pos[2] += 8.00
     dsr.movel(cur_pos, vel=50, acc=70)
 
     # 2. 물체 높이에 따라 내려갈 거리 결정
@@ -334,6 +344,9 @@ def move_to_ready():
     grip_close()
     # dsr.movel(prime_pose, VELOCITY, ACC, ref=0)
     dsr.movej(prime_posj, VELOCITY, ACC)
+    # 인식 전 자세가 완전히 정지·안정된 뒤 카메라가 캡처하도록 잠깐 대기.
+    # (이게 없으면 두 번째 물건부터 도달 직후 흔들리는 화면에서 인식돼 좌표가 어긋남)
+    dsr.wait(1.0)
 
 
 def grip_checking():  # 그리퍼 잡기 성공 여부 확인
@@ -341,7 +354,7 @@ def grip_checking():  # 그리퍼 잡기 성공 여부 확인
     force1 = dsr.get_tool_force(dsr.DR_BASE)
     _node.get_logger().info(f"무게 확인용. : {force1}")
 
-    if force1[2] < -1:
+    if force1[2] < 2.0:
         a = True
     else:
         a = False
@@ -350,32 +363,35 @@ def grip_checking():  # 그리퍼 잡기 성공 여부 확인
 
 def grapping_side_object_left(angle):  # 물건의 x좌표가 370 이하일때 쓰는 grapping 함수
 
-        time.sleep(0.5)
+    time.sleep(0.5)
 
-        dsr.movel([0, 0, -20, 0, 0, 0], VELOCITY, ACC, ref=dsr.DR_TOOL)
-        dsr.wait(0.5)
+    dsr.movel([0, 0, -20, 0, 0, 0], VELOCITY, ACC, ref=dsr.DR_TOOL)
+    dsr.wait(0.5)
 
-        dsr.movel([0, 0, 0, 0, 45, 0], VELOCITY, ACC, ref=dsr.DR_TOOL)
-        dsr.wait(0.5)
-        
+    dsr.movel([0, 0, 0, 0, 45, 0], VELOCITY, ACC, ref=dsr.DR_TOOL)
+    dsr.wait(0.5)
 
-        dsr.movel([0, 0, 0, 0, 0, 90], VELOCITY, ACC, ref = dsr.DR_TOOL)
+    dsr.movel([0, 0, 0, 0, 0, 90], VELOCITY, ACC, ref = dsr.DR_TOOL)
 
-        grip_open()
+    grip_open()
 
-        pose2 = dsr.get_current_posx()[0]
-        pose2[2] /= 1.8
-        dsr.movel(pose2, VELOCITY, ACC, ref=dsr.DR_BASE)
-        pose3 = dsr.get_current_posx()[0]
-        pose3[0] -= 25.00
-        dsr.movel(pose3, VELOCITY, ACC, ref = dsr.DR_BASE)
+    pose2 = dsr.get_current_posx()[0]
+    pose2[2] /= 1.8
+    dsr.movel(pose2, VELOCITY, ACC, ref=dsr.DR_BASE)
+    pose3 = dsr.get_current_posx()[0]
+    pose3[0] -= 15.00
+    dsr.movel(pose3, VELOCITY, ACC, ref = dsr.DR_BASE)
 
 
-        grip_close()
-        dsr.wait(1.5)
-        # a = dsr.get_current_posx()[0]
-        # a[2] += 100
-        dsr.movel(prime_pose, VELOCITY, ACC, ref=dsr.DR_BASE)
+    grip_close()
+    dsr.wait(1.5)
+    pose2[2] += 150.00
+    dsr.movel(pose2, VELOCITY, ACC, ref=dsr.DR_BASE)
+
+    a = list(prime_pose)
+    a[1] -= 60.00
+    
+    dsr.movel(a, VELOCITY, ACC, ref=dsr.DR_BASE)  
 
 def grapping_side_object_right(angle):  # 물건의 x좌표가 370 이하일때 쓰는 grapping 함수
 
@@ -402,9 +418,10 @@ def grapping_side_object_right(angle):  # 물건의 x좌표가 370 이하일때 
 
     grip_close()
     dsr.wait(1.5)
-    # a = dsr.get_current_posx()[0]
-    # a[2] += 100
-    dsr.movel(prime_pose, VELOCITY, ACC, ref=dsr.DR_BASE)    
+    a = list(prime_pose)
+    a[1] -= 60.00
+    
+    dsr.movel(a, VELOCITY, ACC, ref=dsr.DR_BASE)    
 
 
 def pick_object(center_x: float, center_y: float, angle: float) -> bool:
@@ -427,10 +444,10 @@ def pick_object(center_x: float, center_y: float, angle: float) -> bool:
     _node.get_logger().info(f"[pick] robot_x={robot_x:.1f}, robot_y={robot_y:.1f}")
 
     near_edge = (
-        robot_x < top_left[0] + 100.00
-        or robot_y < bot_left[1] + 100.00
-        or robot_x > top_right[0] - 100.00
-        or robot_y > top_right[1] - 100.00
+        robot_x < top_left[0] + 60.00
+        or robot_y < bot_left[1] + 50.00
+        or robot_x > top_right[0] - 50.00
+        or robot_y > top_right[1] - 50.00
     )
 
     if near_edge:
@@ -445,13 +462,22 @@ def pick_object(center_x: float, center_y: float, angle: float) -> bool:
             f"{'press_move (z<100, 낮은 물체)' if z_top < 100.00 else 'grapping (z>=100, 높은 물체)'}")
 
         if z_top < 100.00:
-            press_move()
-            force_down()
+            dsr.wait(0.1)
+            dsr.movel([0, 0, -15.00, 0, 0, 0], VELOCITY, ACC, ref = dsr.DR_TOOL)
+            dsr.wait(0.1)
             if angle >= 0:
                 dsr.movel([0, 0, 0, 0, 0, angle - 90], VELOCITY, ACC, ref=dsr.DR_TOOL)
             else:
                 dsr.movel([0, 0, 0, 0, 0, angle + 90], VELOCITY, ACC, ref=dsr.DR_TOOL)
+
+            press_move()
+            
+            force_down()
+
+            
             success = pick_up()   # angle 부호와 무관하게 항상 실행 (else 들여쓰기 버그 수정)
+
+
         else:
             if robot_x > top_right[0] - 100.00:
                 grapping_side_object_right(angle)    

@@ -146,6 +146,11 @@ class RobotArmNode(Node):
             self._finish(success=False)
             return
 
+        # 모든 인식을 1번째 물건과 동일한 자세(prime_posj)에서 하도록, detect 요청 직전에
+        # 항상 대기 자세로 복귀한다. (2번째 이후 물건이 다른 자세에서 인식돼 좌표가
+        # 어긋나던 문제 방지)
+        robot_motion.move_to_ready()
+
         request = DetectObject.Request()
         request.capture = True
         future = self.detect_client.call_async(request)
